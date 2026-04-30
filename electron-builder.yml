@@ -10,11 +10,11 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 win:
   executableName: bireader
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  signAndEditExecutable: false
+  artifactName: ${name}-${version}-portable.${ext}
+  target:
+    - target: portable
+      arch: [x64]
 linux:
   target:
     - AppImage

@@ -7,6 +7,7 @@
     "dev": "electron-vite dev -- --force-device-scale-factor=1.5",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "build:win": "electron-vite build && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
