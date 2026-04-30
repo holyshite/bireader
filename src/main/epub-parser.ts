@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 interface EpubChunk {
   id: string
   text: string
+  type: 'heading' | 'text' | 'toc'
 }
 
 interface TocEntry {
@@ -25,120 +26,208 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
   // 1. Find rootfile path from container.xml
   const containerFile = zip.file('META-INF/container.xml')
   if (!containerFile) throw new Error('Invalid EPUB: missing container.xml')
-
   const containerXml = await containerFile.async('string')
-  const rootfileMatch = containerXml.match(/full-path="([^"]+)"/)
+  const rootfileMatch = containerXml.match(/full-path\s*=\s*["']([^"']+)["']/)
   if (!rootfileMatch) throw new Error('Invalid EPUB: cannot find rootfile path')
 
-  const rootfilePath = rootfileMatch[1]
+  const rootfilePath = decodeURIComponent(rootfileMatch[1])
   const rootfileDir = rootfilePath.includes('/') ? rootfilePath.split('/').slice(0, -1).join('/') : ''
 
   // 2. Parse content.opf
-  const opfFile = zip.file(rootfilePath)
+  const opfFile = findFile(zip, rootfilePath)
   if (!opfFile) throw new Error('Invalid EPUB: missing content.opf')
-
   const opfXml = await opfFile.async('string')
   const title = extractTag(opfXml, 'dc:title') || extractTag(opfXml, 'title') || 'Unknown'
 
-  // Find a cover image (optional, for future use)
-  // const coverId = opfXml.match(/<meta[^>]*name="cover"[^>]*content="([^"]*)"/)?.[1] || ''
-
-  // 3. Build manifest map: id → href
+  // 3. Build manifest: id → href, also detect nav/cover
   const manifest = new Map<string, string>()
-  const itemRegex = /<item[^>]*id="([^"]*)"[^>]*href="([^"]*)"[^>]*>/g
+  const manifestProps = new Map<string, string>() // id → properties
+  const itemRegex = /<item[^>]*>/g
   let itemMatch: RegExpExecArray | null
   while ((itemMatch = itemRegex.exec(opfXml)) !== null) {
-    manifest.set(itemMatch[1], itemMatch[2])
-  }
-
-  // 4. Get spine reading order
-  const spineIds: string[] = []
-  const spineRegex = /<itemref[^>]*idref="([^"]*)"[^>]*>/g
-  let spineMatch: RegExpExecArray | null
-  while ((spineMatch = spineRegex.exec(opfXml)) !== null) {
-    spineIds.push(spineMatch[1])
-  }
-
-  // 5. Parse toc.ncx for TOC
-  const tocNcxPath = findTocNcx(opfXml, manifest, rootfileDir)
-  let tocEntries: TocEntry[] = []
-  if (tocNcxPath) {
-    const ncxFile = zip.file(tocNcxPath)
-    if (ncxFile) {
-      const ncxXml = await ncxFile.async('string')
-      tocEntries = parseTocNcx(ncxXml)
+    const tag = itemMatch[0]
+    const id = extractAttr(tag, 'id')
+    const href = extractAttr(tag, 'href')
+    const props = extractAttr(tag, 'properties')
+    if (id && href) {
+      manifest.set(id, decodeURIComponent(href))
+      if (props) manifestProps.set(id, props)
     }
   }
 
-  // 6. Extract paragraphs from each spine item's XHTML
-  const paragraphs: EpubChunk[] = []
+  // 4. Parse spine: get reading order, detect linear="no"
+  const spine: { idref: string; linear: boolean }[] = []
+  const spineRegex = /<itemref[^>]*>/g
+  let spineMatch: RegExpExecArray | null
+  while ((spineMatch = spineRegex.exec(opfXml)) !== null) {
+    const tag = spineMatch[0]
+    const idref = extractAttr(tag, 'idref')
+    if (idref) {
+      spine.push({ idref, linear: extractAttr(tag, 'linear') !== 'no' })
+    }
+  }
+
+  // 5. Identify page types: skip (cover etc), tocPage (render compact)
+  const skipIds = new Set<string>()
+  const tocPageIds = new Set<string>()
+  for (const [id, props] of manifestProps) {
+    if (props.includes('cover')) skipIds.add(id)
+    if (props.includes('nav')) tocPageIds.add(id)
+  }
+  for (const s of spine) {
+    if (!s.linear) skipIds.add(s.idref)
+  }
+  for (const [id, href] of manifest) {
+    const name = href.replace(/^.*[\\/]/, '').toLowerCase()
+    if (/^(cover|titlepage|copyright|colophon|dedication)(\.x?html?)?$/.test(name)) {
+      skipIds.add(id)
+    }
+    if (/^(toc|nav)(\.x?html?)?$/.test(name)) {
+      tocPageIds.add(id)
+    }
+  }
+
+  // 6. Parse TocEntries from NCX (with src mapping)
+  const tocNcxPath = findTocNcx(opfXml, manifest, rootfileDir)
+  const ncxEntries: { title: string; src: string }[] = []
+  if (tocNcxPath) {
+    const ncxFile = findFile(zip, tocNcxPath)
+    if (ncxFile) {
+      const ncxXml = await ncxFile.async('string')
+      ncxEntries.push(...parseTocNcx(ncxXml))
+    }
+  }
+
+  // 7. Extract paragraphs from spine, tracking file→firstParagraphId
+  const allParagraphs: EpubChunk[] = []
+  const fileToFirstPara = new Map<string, string>() // href → first paragraph id
   let paraIndex = 0
 
-  for (const spineId of spineIds) {
-    const href = manifest.get(spineId)
+  for (const s of spine) {
+    if (skipIds.has(s.idref)) continue
+
+    const href = manifest.get(s.idref)
     if (!href) continue
 
-    const fullPath = rootfileDir ? `${rootfileDir}/${href}` : href
-    const htmlFile = zip.file(fullPath) || zip.file(href)
-    if (!htmlFile) continue
+    const htmlFile = resolveAndFind(zip, rootfileDir, href)
+    if (!htmlFile) {
+      console.warn(`EPUB: file not found for id=${s.idref} href=${href}`)
+      continue
+    }
 
+    const isTocPage = tocPageIds.has(s.idref)
     const html = await htmlFile.async('string')
     const chunks = extractParagraphs(html, paraIndex)
+    if (isTocPage) {
+      for (const c of chunks) c.type = 'toc'
+    }
     if (chunks.length > 0) {
-      paragraphs.push(...chunks)
+      if (!fileToFirstPara.has(href)) {
+        fileToFirstPara.set(href, chunks[0].id)
+      }
+      allParagraphs.push(...chunks)
     }
     paraIndex += chunks.length
   }
 
-  // If no TOC from ncx, extract from headings in content
-  if (tocEntries.length === 0) {
-    tocEntries = extractTocFromParagraphs(paragraphs)
+  // 8. Build TOC: map ncx entries to real paragraph IDs via file reference
+  const tocEntries: TocEntry[] = []
+  const seenTitles = new Set<string>()
+
+  for (const ncx of ncxEntries) {
+    // Normalize src: remove fragment, decode
+    const srcFile = ncx.src.replace(/#.*$/, '')
+    // Try to find the paragraph ID from the file map
+    let targetId = fileToFirstPara.get(srcFile)
+    if (!targetId) {
+      // Try fuzzy match — find any file whose path ends with srcFile
+      for (const [file, paraId] of fileToFirstPara) {
+        if (file.endsWith(srcFile) || srcFile.endsWith(file)) {
+          targetId = paraId
+          break
+        }
+      }
+    }
+    if (!targetId) {
+      // Fallback: match by title text in paragraphs
+      const matched = allParagraphs.find(
+        p => p.text.startsWith(ncx.title) || ncx.title.startsWith(p.text.slice(0, ncx.title.length))
+      )
+      if (matched) targetId = matched.id
+    }
+
+    if (!seenTitles.has(ncx.title)) {
+      seenTitles.add(ncx.title)
+      tocEntries.push({ id: targetId || `epub-p-0`, title: ncx.title, level: 1 })
+    }
   }
 
-  return { paragraphs, toc: tocEntries, title }
+  // If no NCX TOC, extract from content headings
+  if (tocEntries.length === 0) {
+    tocEntries.push(...extractTocFromParagraphs(allParagraphs))
+  }
+
+  return { paragraphs: allParagraphs, toc: tocEntries, title }
 }
 
-function findTocNcx(opfXml: string, manifest: Map<string, string>, rootfileDir: string): string | null {
-  // Find ncx id from spine toc attribute
-  const tocId = opfXml.match(/<spine[^>]*toc="([^"]*)"/)?.[1] || 'ncx'
-  const href = manifest.get(tocId)
-  if (href) return rootfileDir ? `${rootfileDir}/${href}` : href
-
-  // Fallback: look for ncx in manifest
-  for (const [id, href] of manifest) {
-    if (href.endsWith('.ncx')) return rootfileDir ? `${rootfileDir}/${href}` : href
+function findFile(zip: JSZip, path: string): JSZip.JSZipObject | null {
+  const file = zip.file(path)
+  if (file) return file
+  const lowered = path.toLowerCase()
+  for (const name of Object.keys(zip.files)) {
+    if (name.toLowerCase() === lowered) return zip.file(name)
   }
   return null
 }
 
-function parseTocNcx(ncxXml: string): TocEntry[] {
-  const entries: TocEntry[] = []
-  // Remove namespaces for simpler parsing
+function resolveAndFind(zip: JSZip, rootfileDir: string, href: string): JSZip.JSZipObject | null {
+  const paths = [
+    rootfileDir ? `${rootfileDir}/${href}` : href,
+    href,
+    href.replace(/^\.\//, '')
+  ]
+  for (const p of paths) {
+    const file = findFile(zip, p)
+    if (file) return file
+  }
+  return null
+}
+
+function extractAttr(tag: string, attr: string): string | null {
+  const m = tag.match(new RegExp(`${attr}\\s*=\\s*["']([^"']*)["']`))
+  return m ? m[1] : null
+}
+
+function findTocNcx(opfXml: string, manifest: Map<string, string>, rootfileDir: string): string | null {
+  const spineTag = opfXml.match(/<spine[^>]*>/)
+  const tocId = spineTag ? extractAttr(spineTag[0], 'toc') : null
+  if (tocId) {
+    const href = manifest.get(tocId)
+    if (href) return href
+  }
+  // Fallback: find ncx file in manifest
+  for (const href of manifest.values()) {
+    if (href.toLowerCase().endsWith('.ncx')) return href
+  }
+  return null
+}
+
+function parseTocNcx(ncxXml: string): { title: string; src: string }[] {
+  const entries: { title: string; src: string }[] = []
   const cleanXml = ncxXml.replace(/\s+xmlns(:[a-z]+)?="[^"]*"/g, '')
 
-  const navPointRegex = /<navPoint[^>]*id="([^"]*)"[^>]*playOrder="(\d+)"[^>]*>/g
-  const navLabelRegex = /<text>([^<]+)<\/text>/g
-  const contentSrcRegex = /<content[^>]*src="([^"]*)"/g
-
-  // Simpler approach: extract all navPoints with their text and src
   const navBlockRegex = /<navPoint[^>]*>([\s\S]*?)<\/navPoint>/g
   let blockMatch: RegExpExecArray | null
-  let level = 1
 
   while ((blockMatch = navBlockRegex.exec(cleanXml)) !== null) {
     const block = blockMatch[1]
-    // Check if there are nested navPoints → indicates this is a parent level
-    const hasNested = /<navPoint/.test(block.replace(/<navPoint[\s\S]*?<\/navPoint>/, ''))
-
     const textMatch = block.match(/<text>([^<]+)<\/text>/)
     const srcMatch = block.match(/<content[^>]*src="([^"]*)"/)
-
     if (textMatch) {
-      const title = textMatch[1].trim()
-      const src = srcMatch?.[1]?.split('#')[0] || blockMatch[1]
-      const id = src.slice(-20) // simple id from src
-
-      entries.push({ id: `epub-p-${entries.length}`, title, level: 1 })
+      entries.push({
+        title: textMatch[1].trim(),
+        src: srcMatch ? decodeURIComponent(srcMatch[1]) : ''
+      })
     }
   }
 
@@ -146,38 +235,51 @@ function parseTocNcx(ncxXml: string): TocEntry[] {
 }
 
 function extractParagraphs(html: string, startIndex: number): EpubChunk[] {
-  // Extract body content
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)
-  if (!bodyMatch) return []
+  const normalizedHtml = html.replace(/<(\/?)(\w+):(\w+)/g, '<$1$3')
 
-  let bodyHtml = bodyMatch[1]
-  // Remove scripts and styles
-  bodyHtml = bodyHtml.replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+  const bodyMatch = normalizedHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)
+  let bodyHtml = bodyMatch ? bodyMatch[1] : normalizedHtml
 
-  // Remove image tags
-  bodyHtml = bodyHtml.replace(/<img[^>]*>/gi, '')
+  bodyHtml = bodyHtml.replace(/<(script|style|head|meta|link)[\s\S]*?<\/\1>/gi, '')
+  bodyHtml = bodyHtml.replace(/<(script|style)[^>]*\/>/gi, '')
+  bodyHtml = bodyHtml.replace(/<(img|svg|figure)[\s\S]*?(<\/\1>|\/>)/gi, '')
 
-  // Remove HTML tags but keep text
-  // Split on block-level tags
+  // Split by block tags, tracking heading tags
+  const blockRegex = /<\/?(h[1-6]|p|div|br|section|article|li|blockquote|td|th|pre)[^>]*\/?>/gi
+  const segments: { text: string; isHeading: boolean }[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = blockRegex.exec(bodyHtml)) !== null) {
+    const text = bodyHtml.slice(lastIndex, match.index)
+    lastIndex = match.index + match[0].length
+    const isHeading = /^h[1-6]$/i.test(match[1])
+    segments.push({ text, isHeading })
+  }
+  // Last segment
+  segments.push({ text: bodyHtml.slice(lastIndex), isHeading: false })
+
   const paragraphs: EpubChunk[] = []
-  // Split by block elements
-  const blocks = bodyHtml.split(/<\/?(?:p|div|h[1-6]|br|section|article|li|blockquote)[^>]*>/gi)
 
-  for (const block of blocks) {
-    // Clean remaining inline tags
-    const text = block
+  for (const seg of segments) {
+    const text = seg.text
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
       .replace(/&#?\w+;/g, '')
       .replace(/\s+/g, ' ')
       .trim()
 
-    if (text.length > 0) {
-      paragraphs.push({ id: `epub-p-${startIndex + paragraphs.length}`, text })
+    if (text.length > 3) {
+      paragraphs.push({
+        id: `epub-p-${startIndex + paragraphs.length}`,
+        text,
+        type: seg.isHeading ? 'heading' : 'text'
+      })
     }
   }
 
@@ -187,7 +289,7 @@ function extractParagraphs(html: string, startIndex: number): EpubChunk[] {
 function extractTocFromParagraphs(paragraphs: EpubChunk[]): TocEntry[] {
   const toc: TocEntry[] = []
   for (const p of paragraphs) {
-    // Detect chapter-like patterns
+    if (p.type === 'toc') continue
     const chapterMatch = p.text.match(
       /^(第[一二三四五六七八九十百千\d]+[章节回篇部]|Chapter\s+\d+|CHAPTER\s+\d+|Part\s+\d+|序言|前言|后记|尾声)/
     )

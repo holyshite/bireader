@@ -8,7 +8,7 @@
         v-for="item in readerStore.toc"
         :key="item.id"
         class="toc-item"
-        :class="`level-${item.level}`"
+        :class="[`level-${item.level}`, { active: item.id === activeTocId }]"
         href="#"
         @click.prevent="scrollTo(item.id)"
       >
@@ -16,17 +16,113 @@
       </a>
       <p v-if="readerStore.toc.length === 0" class="toc-empty">暂无目录</p>
     </nav>
+    <div v-if="bookmarkStore.bookmarks.length > 0" class="bookmark-section">
+      <div class="bookmark-header">
+        <span class="bookmark-title">书签</span>
+        <span class="bookmark-count">{{ bookmarkStore.bookmarks.length }}</span>
+        <button class="bookmark-clear" @click="bookmarkStore.clear()">清空</button>
+      </div>
+      <div class="bookmark-list">
+        <div
+          v-for="bm in bookmarkStore.bookmarks"
+          :key="bm.id"
+          class="bookmark-item"
+          @click="scrollTo(bm.id)"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="bm-icon">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="bm-text">{{ bm.text }}</span>
+          <button class="bm-remove" @click.stop="bookmarkStore.remove(bm.id)" title="删除">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useReaderStore } from '@/stores/reader'
+import { useBookmarkStore } from '@/stores/bookmarks'
 
 const readerStore = useReaderStore()
+const bookmarkStore = useBookmarkStore()
+const activeTocId = ref('')
+
+let observer: IntersectionObserver | null = null
+
+function setupObserver() {
+  if (observer) observer.disconnect()
+
+  const tocIds = new Set(readerStore.toc.map(t => t.id))
+  const headings = document.querySelectorAll('[data-paragraph-id]')
+
+  let bestId = ''
+  let bestRatio = 0
+
+  observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const id = entry.target.getAttribute('data-paragraph-id') || ''
+      if (tocIds.has(id)) {
+        if (entry.intersectionRatio > bestRatio) {
+          bestRatio = entry.intersectionRatio
+          bestId = id
+        }
+      }
+    }
+    if (bestId) activeTocId.value = bestId
+  }, { threshold: [0, 0.25, 0.5], rootMargin: '-10% 0px -60% 0px' })
+
+  for (const h of headings) {
+    observer.observe(h)
+  }
+  bestRatio = 0
+  bestId = ''
+}
+
+onMounted(() => {
+  setupObserver()
+})
+
+watch(() => readerStore.content.length, () => {
+  setTimeout(setupObserver, 500)
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+})
 
 function scrollTo(id: string) {
-  const el = document.querySelector(`[data-paragraph-id="${id}"]`)
-  el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const target = document.querySelector(`[data-paragraph-id="${id}"]`) as HTMLElement | null
+  if (!target) return
+
+  const container = document.querySelector('.reader-area') as HTMLElement
+  if (!container) return
+
+  // Temporarily render all paragraphs for accurate scroll calculation
+  const allRows = container.querySelectorAll('.paragraph-row') as NodeListOf<HTMLElement>
+  allRows.forEach(r => { r.style.contentVisibility = 'visible' })
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const currentScroll = container.scrollTop
+      const offset = targetRect.top - containerRect.top
+      const targetScroll = currentScroll + offset - containerRect.height * 0.4
+
+      container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' })
+
+      // Restore content-visibility after smooth scroll completes
+      setTimeout(() => {
+        allRows.forEach(r => { r.style.contentVisibility = '' })
+      }, 800)
+    })
+  })
 }
 </script>
 
@@ -38,13 +134,13 @@ function scrollTo(id: string) {
 }
 
 .toc-header {
-  padding: var(--space-sm) var(--space-md);
+  padding: 8px var(--space-md);
   border-bottom: 1px solid var(--color-border-light);
   flex-shrink: 0;
 }
 
 .toc-title {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
 }
@@ -52,16 +148,17 @@ function scrollTo(id: string) {
 .toc-list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-sm);
+  padding: 4px;
 }
 
 .toc-item {
   display: block;
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--font-size-sm);
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--color-text-secondary);
   text-decoration: none;
-  border-radius: var(--border-radius-sm);
+  border-radius: 4px;
   transition: background-color var(--transition-fast),
               color var(--transition-fast);
   white-space: nowrap;
@@ -69,18 +166,130 @@ function scrollTo(id: string) {
   text-overflow: ellipsis;
 }
 
-.toc-item:hover {
+.toc-item:hover,
+.toc-item.active {
   background: var(--color-surface-hover);
   color: var(--color-text);
 }
 
-.toc-item.level-2 { padding-left: var(--space-lg); }
-.toc-item.level-3 { padding-left: var(--space-xl); }
+.toc-item.active {
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.toc-item.level-2 { padding-left: 20px; }
+.toc-item.level-3 { padding-left: 30px; }
 
 .toc-empty {
-  padding: var(--space-md);
-  font-size: var(--font-size-sm);
+  padding: 16px;
+  font-size: 13px;
   color: var(--color-text-muted);
   text-align: center;
+}
+
+.bookmark-section {
+  border-top: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+}
+
+.bookmark-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px var(--space-md);
+  flex-shrink: 0;
+}
+
+.bookmark-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.bookmark-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-hover);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.bookmark-clear {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.bookmark-clear:hover {
+  color: #d9534f;
+  background: #fdf0ef;
+}
+
+.bookmark-list {
+  overflow-y: auto;
+  padding: 0 4px 4px;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.bookmark-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.bm-icon {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.bm-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bm-remove {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.bookmark-item:hover .bm-remove {
+  opacity: 1;
+}
+
+.bm-remove:hover {
+  color: #d9534f;
+  background: #fdf0ef;
 }
 </style>

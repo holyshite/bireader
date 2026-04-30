@@ -12,7 +12,11 @@ export function setupIpcHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null
 
     const filePath = result.filePaths[0]
-    return parseEpub(filePath)
+    return { ...(await parseEpub(filePath)), filePath }
+  })
+
+  ipcMain.handle('open-epub-by-path', async (_event, filePath: string) => {
+    return { ...(await parseEpub(filePath)), filePath }
   })
 
   ipcMain.handle('get-config', () => {

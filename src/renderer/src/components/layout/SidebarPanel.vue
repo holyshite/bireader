@@ -27,6 +27,8 @@ defineProps<{
   overflow: hidden;
   background: var(--color-surface);
   border-color: var(--color-border);
+  contain: layout style;
+  will-change: width;
   transition: width var(--transition-normal),
               min-width var(--transition-normal),
               opacity var(--transition-normal),

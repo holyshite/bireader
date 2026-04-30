@@ -1,5 +1,6 @@
 appId: com.bireader.app
 productName: bireader
+asar: true
 directories:
   buildResources: resources
 files:

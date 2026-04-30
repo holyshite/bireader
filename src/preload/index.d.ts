@@ -1,7 +1,8 @@
 interface EpubData {
-  paragraphs: { id: string; text: string }[]
+  paragraphs: { id: string; text: string; type: 'heading' | 'text' | 'toc' }[]
   toc: { id: string; title: string; level: number }[]
   title: string
+  filePath: string
 }
 
 interface AppConfig {
@@ -19,6 +20,7 @@ interface SaveConfigInput {
 export interface ElectronAPI {
   translate: (text: string) => Promise<string>
   openEpub: () => Promise<EpubData | null>
+  openEpubByPath: (filePath: string) => Promise<EpubData | null>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: SaveConfigInput) => Promise<void>
 }

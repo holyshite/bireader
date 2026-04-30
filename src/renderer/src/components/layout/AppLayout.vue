@@ -2,50 +2,49 @@
   <div class="app-layout">
     <header class="app-header">
       <div class="header-left">
-        <IconButton label="目录" @click="readerStore.toggleToc">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
-        </IconButton>
-        <IconButton label="导入 EPUB" @click="onImportEpub">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/>
-          </svg>
-        </IconButton>
-        <span class="app-title">{{ readerStore.bookTitle }}</span>
+        <template v-if="readerStore.isBookLoaded">
+          <IconButton label="返回书架" @click="onBackToLibrary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </IconButton>
+          <IconButton label="目录" @click="readerStore.toggleToc">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </IconButton>
+          <span class="app-title">{{ readerStore.bookTitle }}</span>
+        </template>
+        <span v-else class="app-title">bireader</span>
       </div>
       <div class="header-right">
-        <select class="font-size-select" :value="readerStore.fontSize" @change="onFontSizeChange">
-          <option :value="15">小</option>
-          <option :value="17">中</option>
-          <option :value="20">大</option>
-          <option :value="24">超大</option>
-        </select>
+        <template v-if="readerStore.isBookLoaded">
+          <IconButton label="翻译面板" @click="translationStore.togglePanel">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 8l6 4-6 4"/><path d="M13 8l6 4-6 4"/>
+            </svg>
+          </IconButton>
+          <IconButton label="切换主题" @click="toggleTheme">
+            <svg v-if="themeStore.theme === 'light'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          </IconButton>
+        </template>
         <IconButton label="设置" @click="showSettings = true">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </IconButton>
-        <IconButton label="切换主题" @click="toggleTheme">
-          <svg v-if="themeStore.theme === 'light'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-          <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
-        </IconButton>
-        <IconButton label="翻译面板" @click="translationStore.togglePanel">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 8l6 4-6 4"/><path d="M13 8l6 4-6 4"/>
-          </svg>
-        </IconButton>
       </div>
     </header>
-    <div class="main-body">
+    <div v-if="readerStore.isBookLoaded" class="main-body">
       <SidebarPanel :is-open="readerStore.isTocOpen" side="left">
         <TocSidebar />
       </SidebarPanel>
-      <main class="reader-area" @click="onReaderClick" @mouseup="onTextSelect">
+      <main class="reader-area" @click="onReaderClick" @mouseup="onTextSelect" @wheel="onWheel">
         <ReaderView />
       </main>
       <div
@@ -57,6 +56,11 @@
         <TranslationPanel />
       </SidebarPanel>
     </div>
+    <HomeView
+      v-else
+      @import="onImportEpub"
+      @open-book="onOpenBook"
+    />
     <SettingsDialog :visible="showSettings" @close="showSettings = false" />
   </div>
 </template>
@@ -68,15 +72,18 @@ import ReaderView from '@/components/reader/ReaderView.vue'
 import TranslationPanel from '@/components/translator/TranslationPanel.vue'
 import TocSidebar from '@/components/sidebar/TocSidebar.vue'
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import HomeView from '@/components/home/HomeView.vue'
 import { ref } from 'vue'
 import { useReaderStore } from '@/stores/reader'
 import { useTranslationStore } from '@/stores/translation'
 import { useThemeStore } from '@/stores/theme'
+import { useLibraryStore } from '@/stores/library'
 import { useTheme } from '@/composables/useTheme'
 
 const readerStore = useReaderStore()
 const translationStore = useTranslationStore()
 const themeStore = useThemeStore()
+const libraryStore = useLibraryStore()
 const { toggleTheme } = useTheme()
 const showSettings = ref(false)
 
@@ -107,9 +114,12 @@ function onResizeStart(e: MouseEvent) {
   document.body.style.userSelect = 'none'
 }
 
-function onFontSizeChange(e: Event) {
-  const select = e.target as HTMLSelectElement
-  readerStore.setFontSize(Number(select.value))
+function onWheel(e: WheelEvent) {
+  if (!e.ctrlKey) return
+  e.preventDefault()
+  const delta = e.deltaY > 0 ? -1 : 1
+  const newSize = Math.min(32, Math.max(10, readerStore.fontSize + delta))
+  readerStore.setFontSize(newSize)
 }
 
 function onReaderClick(e: MouseEvent) {
@@ -139,9 +149,25 @@ function onTextSelect() {
 async function onImportEpub() {
   const data = await window.api.openEpub()
   if (data) {
-    readerStore.loadEpub(data)
+    readerStore.loadEpub(data, data.filePath)
+    libraryStore.addBook(data.title, data.filePath)
     translationStore.closePanel()
   }
+}
+
+async function onOpenBook(book: { title: string; filePath: string }) {
+  // Need IPC to load EPUB by file path
+  const data = await window.api.openEpubByPath(book.filePath)
+  if (data) {
+    readerStore.loadEpub(data, book.filePath)
+    libraryStore.touchBook(book.filePath)
+    translationStore.closePanel()
+  }
+}
+
+function onBackToLibrary() {
+  readerStore.backToLibrary()
+  translationStore.closePanel()
 }
 </script>
 
@@ -183,18 +209,6 @@ async function onImportEpub() {
   letter-spacing: 0.5px;
 }
 
-.font-size-select {
-  height: 28px;
-  padding: 0 var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-sans);
-  cursor: pointer;
-}
-
 .main-body {
   display: flex;
   flex: 1;
@@ -205,6 +219,7 @@ async function onImportEpub() {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  contain: layout style;
 }
 
 .resize-handle {

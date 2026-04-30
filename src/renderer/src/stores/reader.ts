@@ -15,6 +15,8 @@ export const useReaderStore = defineStore('reader', () => {
   const fontSize = ref(17)
   const isTocOpen = ref(true)
   const bookTitle = ref('bireader')
+  const isBookLoaded = ref(false)
+  const currentFilePath = ref('')
 
   function setContent(paragraphs: { id: string; text: string }[]) {
     content.value = paragraphs
@@ -28,10 +30,19 @@ export const useReaderStore = defineStore('reader', () => {
     bookTitle.value = title
   }
 
-  function loadEpub(data: { paragraphs: { id: string; text: string }[]; toc: TocItem[]; title: string }) {
+  function loadEpub(data: { paragraphs: { id: string; text: string }[]; toc: TocItem[]; title: string }, filePath?: string) {
     content.value = data.paragraphs
     toc.value = data.toc
     bookTitle.value = data.title
+    isBookLoaded.value = true
+    if (filePath) currentFilePath.value = filePath
+  }
+
+  function backToLibrary() {
+    isBookLoaded.value = false
+    content.value = []
+    toc.value = []
+    currentFilePath.value = ''
   }
 
   function setSelectedText(text: string) {
@@ -58,10 +69,13 @@ export const useReaderStore = defineStore('reader', () => {
     fontSize,
     isTocOpen,
     bookTitle,
+    isBookLoaded,
+    currentFilePath,
     setContent,
     setToc,
     setBookTitle,
     loadEpub,
+    backToLibrary,
     setSelectedText,
     setActiveParagraph,
     setFontSize,
