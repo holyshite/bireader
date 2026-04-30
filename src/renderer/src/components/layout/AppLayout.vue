@@ -21,6 +21,11 @@
           <option :value="20">大</option>
           <option :value="24">超大</option>
         </select>
+        <IconButton label="设置" @click="showSettings = true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </IconButton>
         <IconButton label="切换主题" @click="toggleTheme">
           <svg v-if="themeStore.theme === 'light'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -52,6 +57,7 @@
         <TranslationPanel />
       </SidebarPanel>
     </div>
+    <SettingsDialog :visible="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
@@ -61,6 +67,8 @@ import SidebarPanel from '@/components/layout/SidebarPanel.vue'
 import ReaderView from '@/components/reader/ReaderView.vue'
 import TranslationPanel from '@/components/translator/TranslationPanel.vue'
 import TocSidebar from '@/components/sidebar/TocSidebar.vue'
+import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import { ref } from 'vue'
 import { useReaderStore } from '@/stores/reader'
 import { useTranslationStore } from '@/stores/translation'
 import { useThemeStore } from '@/stores/theme'
@@ -70,6 +78,7 @@ const readerStore = useReaderStore()
 const translationStore = useTranslationStore()
 const themeStore = useThemeStore()
 const { toggleTheme } = useTheme()
+const showSettings = ref(false)
 
 let isResizing = false
 

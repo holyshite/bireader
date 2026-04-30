@@ -1,8 +1,8 @@
-import 'dotenv/config'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
+import { initConfig } from './config'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -37,6 +37,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  initConfig()
   setupIpcHandlers()
   createWindow()
 
