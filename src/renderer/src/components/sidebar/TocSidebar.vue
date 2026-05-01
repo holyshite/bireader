@@ -119,15 +119,7 @@ function scrollTo(id: string) {
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const containerRect = container.getBoundingClientRect()
-      const targetRect = target.getBoundingClientRect()
-      const currentScroll = container.scrollTop
-      const offset = targetRect.top - containerRect.top
-      const targetScroll = currentScroll + offset - containerRect.height * 0.4
-
-      container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' })
-
-      // Restore content-visibility after smooth scroll completes
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
       setTimeout(() => {
         allRows.forEach(r => { r.style.contentVisibility = '' })
       }, 800)
