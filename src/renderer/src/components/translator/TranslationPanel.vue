@@ -54,7 +54,7 @@
             <div class="section-label">翻译分析</div>
             <LoadingSpinner v-if="analyzing" text="分析中..." />
             <div v-else-if="analysisError" class="error-msg">{{ analysisError }}</div>
-            <div v-else-if="analysis" class="analysis-text">{{ analysis }}</div>
+            <div v-else-if="analysis" class="analysis-text" v-html="analysisHtml"></div>
           </div>
         </template>
       </template>
@@ -71,6 +71,7 @@ import { useReaderStore } from '@/stores/reader'
 import { useTranslationStore } from '@/stores/translation'
 import { useDebounce } from '@/composables/useDebounce'
 import { TranslationCache } from '@/services/cache'
+import { marked } from 'marked'
 
 const readerStore = useReaderStore()
 const translationStore = useTranslationStore()
@@ -80,6 +81,11 @@ const analyzing = ref(false)
 const analysis = ref<string | null>(null)
 const analysisError = ref<string | null>(null)
 const selectedSentence = ref(-1)
+
+const analysisHtml = computed(() => {
+  if (!analysis.value) return ''
+  return marked.parse(analysis.value) as string
+})
 
 const sentences = computed(() => {
   return sourceText.value.split(/(?<=[.!?。！？\n])\s*/g).filter(s => s.trim())
@@ -268,8 +274,50 @@ async function doAnalyze() {
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--color-text);
-  line-height: 1.6;
-  white-space: pre-wrap;
+  line-height: 1.8;
+}
+
+.analysis-text :deep(h1),
+.analysis-text :deep(h2),
+.analysis-text :deep(h3) {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 4px;
+  color: var(--color-primary);
+}
+
+.analysis-text :deep(ul),
+.analysis-text :deep(ol) {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+.analysis-text :deep(li) {
+  margin-bottom: 4px;
+}
+
+.analysis-text :deep(strong) {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.analysis-text :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-surface-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.analysis-text :deep(p) {
+  margin: 4px 0;
+}
+
+.analysis-text :deep(blockquote) {
+  border-left: 2px solid var(--color-primary);
+  margin: 6px 0;
+  padding: 2px 10px;
+  color: var(--color-text-secondary);
 }
 
 .error-msg {
