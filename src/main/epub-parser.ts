@@ -157,22 +157,50 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
     }
   }
 
-  // 7. Extract paragraphs from spine, tracking file→firstParagraphId
+  // 7. Map NCX entries to content files (before extracting paragraphs)
+  const contentFiles: string[] = []
+  for (const s of spine) {
+    if (skipIds.has(s.idref)) continue
+    const href = manifest.get(s.idref)
+    if (href) contentFiles.push(href)
+  }
+
+  // Assign each NCX entry to a content file
+  const fileHeadings = new Map<string, { title: string; level: number }[]>()
+  let fileIdx = 0
+  for (const ncx of ncxEntries) {
+    const srcFile = ncx.src.replace(/#.*$/, '').replace(/^\.\//, '')
+    const ncxFilename = srcFile.replace(/^.*[\\/]/, '')
+    let targetFileIdx = -1
+
+    for (let i = 0; i < contentFiles.length; i++) {
+      const cf = contentFiles[i]
+      const cfFilename = cf.replace(/^.*[\\/]/, '')
+      if (cf === srcFile || cfFilename === ncxFilename || cf.endsWith(srcFile) || srcFile.endsWith(cfFilename)) {
+        targetFileIdx = i; break
+      }
+    }
+    if (targetFileIdx < 0) targetFileIdx = fileIdx
+    if (targetFileIdx >= contentFiles.length) targetFileIdx = contentFiles.length - 1
+
+    const href = contentFiles[targetFileIdx]
+    if (!fileHeadings.has(href)) fileHeadings.set(href, [])
+    fileHeadings.get(href)!.push({ title: ncx.title, level: ncx.level })
+    fileIdx++
+  }
+
+  // 8. Extract paragraphs, inserting heading paragraphs at file boundaries
   const allParagraphs: EpubChunk[] = []
-  const fileToFirstPara = new Map<string, string>() // href → first paragraph id
+  const tocEntries: TocEntry[] = []
   let paraIndex = 0
 
   for (const s of spine) {
     if (skipIds.has(s.idref)) continue
-
     const href = manifest.get(s.idref)
     if (!href) continue
 
     const htmlFile = resolveAndFind(zip, rootfileDir, href)
-    if (!htmlFile) {
-      console.warn(`EPUB: file not found for id=${s.idref} href=${href}`)
-      continue
-    }
+    if (!htmlFile) continue
 
     const isTocPage = tocPageIds.has(s.idref)
     const html = await htmlFile.async('string')
@@ -180,40 +208,34 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
     if (isTocPage) {
       for (const c of chunks) c.type = 'toc'
     }
-    if (chunks.length > 0) {
-      if (!fileToFirstPara.has(href)) {
-        fileToFirstPara.set(href, chunks[0].id)
+
+    // Insert TOC headings that don't already exist in extracted content
+    const headings = fileHeadings.get(href)
+    if (headings) {
+      const chunkTexts = new Set(chunks.map(c => c.text))
+      for (const h of headings) {
+        // Always add to TOC
+        let targetId: string
+        if (!chunkTexts.has(h.title)) {
+          targetId = `epub-h-${paraIndex}`
+          allParagraphs.push({ id: targetId, text: h.title, type: 'heading' })
+          paraIndex++
+        } else {
+          // Title exists in content, use existing paragraph ID
+          const existing = chunks.find(c => c.text === h.title)
+          targetId = existing ? existing.id : `epub-p-${paraIndex}`
+        }
+        tocEntries.push({ id: targetId, title: h.title, level: h.level })
       }
+    }
+
+    if (chunks.length > 0) {
       allParagraphs.push(...chunks)
     }
     paraIndex += chunks.length
   }
 
-  // 8. Build TOC: map ncx entries to real paragraph IDs via file reference
-  const tocEntries: TocEntry[] = []
-
-  for (const ncx of ncxEntries) {
-    const srcFile = ncx.src.replace(/#.*$/, '')
-    let targetId = fileToFirstPara.get(srcFile)
-    if (!targetId) {
-      for (const [file, paraId] of fileToFirstPara) {
-        if (file.endsWith(srcFile) || srcFile.endsWith(file)) {
-          targetId = paraId
-          break
-        }
-      }
-    }
-    if (!targetId) {
-      const matched = allParagraphs.find(
-        p => p.text.startsWith(ncx.title) || ncx.title.startsWith(p.text.slice(0, ncx.title.length))
-      )
-      if (matched) targetId = matched.id
-    }
-
-    tocEntries.push({ id: targetId || `epub-p-0`, title: ncx.title, level: ncx.level })
-  }
-
-  // If no NCX TOC, extract from content headings
+  // If no TOC was created from NCX, extract from content headings
   if (tocEntries.length === 0) {
     tocEntries.push(...extractTocFromParagraphs(allParagraphs))
   }
