@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net } from 'electron'
+import { app, BrowserWindow, protocol } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
@@ -39,10 +39,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  // Handle custom protocol for EPUB images
-  protocol.handle('bireader-img', (request) => {
+  // Serve extracted EPUB images via custom protocol
+  protocol.registerFileProtocol('bireader-img', (request, callback) => {
     const filePath = decodeURIComponent(request.url.replace('bireader-img://', ''))
-    return net.fetch(`file://${filePath}`)
+    callback({ path: filePath })
   })
 
   electronApp.setAppUserModelId('com.bireader.app')
