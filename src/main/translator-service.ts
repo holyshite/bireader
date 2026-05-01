@@ -26,8 +26,6 @@ class OpenAICompatibleTranslator implements TranslatorAdapter {
         { role: 'user', content: text }
       ],
       model: config.model,
-      thinking: { type: 'enabled' },
-      reasoning_effort: 'high',
       stream: false
     })
 
