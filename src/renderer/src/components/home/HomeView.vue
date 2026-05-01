@@ -17,7 +17,7 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/>
           </svg>
-          导入 EPUB
+          导入 EPUB / PDF
         </BaseButton>
       </div>
 
@@ -40,14 +40,19 @@
             @click="openBook(book)"
           >
             <div class="book-cover">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <!-- EPUB -->
+              <svg v-if="isPdf(book)" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+              </svg>
+              <!-- EPUB -->
+              <svg v-else width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
             </div>
             <div class="book-info">
               <span class="book-title">{{ book.title }}</span>
-              <span class="book-time">{{ formatTime(book.lastRead) }}</span>
+              <span class="book-time">{{ formatTime(book.lastRead) }} · {{ isPdf(book) ? 'PDF' : 'EPUB' }}</span>
             </div>
             <button class="book-remove" @click.stop="libraryStore.removeBook(book.filePath)" title="移除">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -89,6 +94,10 @@ function onImport() {
 
 function openBook(book: { title: string; filePath: string }) {
   emit('openBook', book)
+}
+
+function isPdf(book: { filePath: string }): boolean {
+  return book.filePath.toLowerCase().endsWith('.pdf')
 }
 
 function formatTime(ts: number): string {

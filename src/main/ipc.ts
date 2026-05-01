@@ -1,22 +1,34 @@
 import { ipcMain, dialog } from 'electron'
 import { parseEpub } from './epub-parser'
+import { parsePdf } from './pdf-parser'
 import { getConfig, saveConfig } from './config'
 import { getTranslator } from './translator-service'
+
+async function parseFile(filePath: string) {
+  if (filePath.toLowerCase().endsWith('.pdf')) {
+    return parsePdf(filePath, '')
+  }
+  return parseEpub(filePath)
+}
 
 export function setupIpcHandlers(): void {
   ipcMain.handle('open-epub', async () => {
     const result = await dialog.showOpenDialog({
-      filters: [{ name: 'EPUB', extensions: ['epub'] }],
+      filters: [
+        { name: 'Supported Files', extensions: ['epub', 'pdf'] },
+        { name: 'EPUB', extensions: ['epub'] },
+        { name: 'PDF', extensions: ['pdf'] }
+      ],
       properties: ['openFile']
     })
     if (result.canceled || result.filePaths.length === 0) return null
 
     const filePath = result.filePaths[0]
-    return { ...(await parseEpub(filePath)), filePath }
+    return { ...(await parseFile(filePath)), filePath }
   })
 
   ipcMain.handle('open-epub-by-path', async (_event, filePath: string) => {
-    return { ...(await parseEpub(filePath)), filePath }
+    return { ...(await parseFile(filePath)), filePath }
   })
 
   ipcMain.handle('get-config', () => {

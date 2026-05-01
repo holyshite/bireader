@@ -53,47 +53,57 @@ const readerStore = useReaderStore()
 const bookmarkStore = useBookmarkStore()
 const activeTocId = ref('')
 
-let observer: IntersectionObserver | null = null
+function updateActiveToc() {
+  const container = document.querySelector('.reader-area')
+  if (!container || readerStore.toc.length === 0) return
 
-function setupObserver() {
-  if (observer) observer.disconnect()
-
-  const tocIds = new Set(readerStore.toc.map(t => t.id))
-  const headings = document.querySelectorAll('[data-paragraph-id]')
+  const scrollTop = container.scrollTop
+  const containerHeight = container.clientHeight
+  const viewTop = scrollTop + containerHeight * 0.2
 
   let bestId = ''
-  let bestRatio = 0
+  let bestDist = Infinity
 
-  observer = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      const id = entry.target.getAttribute('data-paragraph-id') || ''
-      if (tocIds.has(id)) {
-        if (entry.intersectionRatio > bestRatio) {
-          bestRatio = entry.intersectionRatio
-          bestId = id
-        }
-      }
+  for (const entry of readerStore.toc) {
+    const el = document.querySelector(`[data-paragraph-id="${entry.id}"]`)
+    if (!el) continue
+    const rect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const elTop = rect.top - containerRect.top + scrollTop
+    const dist = elTop - viewTop
+
+    if (dist <= 0 && Math.abs(dist) < bestDist) {
+      bestDist = Math.abs(dist)
+      bestId = entry.id
     }
-    if (bestId) activeTocId.value = bestId
-  }, { threshold: [0, 0.25, 0.5], rootMargin: '-10% 0px -60% 0px' })
-
-  for (const h of headings) {
-    observer.observe(h)
   }
-  bestRatio = 0
-  bestId = ''
+
+  if (bestId) activeTocId.value = bestId
+}
+
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+
+function onScroll() {
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(updateActiveToc, 100)
 }
 
 onMounted(() => {
-  setupObserver()
+  const container = document.querySelector('.reader-area')
+  if (container) {
+    container.addEventListener('scroll', onScroll, { passive: true })
+  }
 })
 
 watch(() => readerStore.content.length, () => {
-  setTimeout(setupObserver, 500)
+  setTimeout(updateActiveToc, 500)
 })
 
 onUnmounted(() => {
-  observer?.disconnect()
+  const container = document.querySelector('.reader-area')
+  if (container) {
+    container.removeEventListener('scroll', onScroll)
+  }
 })
 
 function scrollTo(id: string) {
