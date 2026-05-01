@@ -34,6 +34,23 @@ npm run build
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
 | 自定义 | 任意兼容 OpenAI 接口的地址 | 自定义 |
 
+## 截图
+
+### 首页与书架
+![首页](img_首页展示.png)
+
+### 阅读模式
+![无侧边栏](img1_无侧边栏展示.png)
+
+### 双侧边栏展开
+![双侧边栏](img2_双侧边栏展示.png)
+
+### 翻译与 AI 分析
+![翻译分析](img3_翻译分析展示.png)
+
+### 深色模式
+![深色模式](img4_黑夜模式展示.png)
+
 ## 技术栈
 
 - **框架**: Electron + Vue3 (Composition API) + TypeScript
