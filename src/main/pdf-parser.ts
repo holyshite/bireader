@@ -26,7 +26,6 @@ export async function parsePdf(filePath: string, title: string): Promise<{
     p.parseBuffer(buffer)
   })
 
-  // Extract text from each page using the structured data
   const pages = (parser.data as {
     Pages?: Array<{
       Texts?: Array<{
@@ -45,14 +44,12 @@ export async function parsePdf(filePath: string, title: string): Promise<{
     const texts = page.Texts || []
     if (texts.length === 0) continue
 
-    // Sort by y descending (PDF coordinates: higher y = higher on page), then x ascending
     const sorted = [...texts].sort((a, b) => {
       const yDiff = b.y - a.y
       if (Math.abs(yDiff) > 2) return yDiff
       return a.x - b.x
     })
 
-    // Group items into lines by y proximity
     const lines: { text: string; y: number }[] = []
     let currentLine = ''; let currentY = sorted[0].y
 
@@ -74,13 +71,11 @@ export async function parsePdf(filePath: string, title: string): Promise<{
     }
     if (currentLine.trim()) lines.push({ text: currentLine.trim(), y: currentY })
 
-    // Process each line as a paragraph
     for (const line of lines) {
       const text = line.text.replace(/\s+/g, ' ').trim()
       if (!text || text.length < 2) continue
 
       const isHeading = detectHeading(text)
-
       const id = `pdf-p-${paraIndex}`
       paragraphs.push({ id, text, type: isHeading ? 'heading' : 'text' })
 
@@ -99,7 +94,6 @@ export async function parsePdf(filePath: string, title: string): Promise<{
 }
 
 function detectHeading(text: string): 'h1' | 'h2' | false {
-  // H1: chapter-level patterns
   const h1Patterns = [
     /^第[一二三四五六七八九十百千\d]+[章节回篇部]/,
     /^Chapter\s*\d+/i,
@@ -114,7 +108,6 @@ function detectHeading(text: string): 'h1' | 'h2' | false {
     if (p.test(text)) return 'h1'
   }
 
-  // H2: subsection patterns (shorter text)
   if (text.length < 80) {
     const h2Patterns = [
       /^\d+\.\d+/,
