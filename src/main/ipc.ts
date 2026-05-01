@@ -32,4 +32,10 @@ export function setupIpcHandlers(): void {
     const target = detected === '中文' ? '英文' : '中文'
     return getTranslator().translate(text, detected, target)
   })
+
+  ipcMain.handle('analyze', async (_event, text: string, translation: string) => {
+    const detected = /[一-鿿]/.test(text) ? '中文' : '英文'
+    const target = detected === '中文' ? '英文' : '中文'
+    return getTranslator().analyze(text, translation, detected, target)
+  })
 }

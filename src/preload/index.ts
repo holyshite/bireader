@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   translate: (text: string): Promise<string> => ipcRenderer.invoke('translate', text),
+  analyze: (text: string, translation: string): Promise<string> =>
+    ipcRenderer.invoke('analyze', text, translation),
   openEpub: (): Promise<{
     paragraphs: { id: string; text: string; type: string }[]
     toc: { id: string; title: string; level: number }[]

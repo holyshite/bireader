@@ -15,7 +15,15 @@
       <template v-else>
         <div class="source-section">
           <div class="section-label">原文</div>
-          <p class="source-text">{{ sourceText }}</p>
+          <p class="source-text">
+            <span
+              v-for="(s, i) in sentences"
+              :key="i"
+              class="sentence"
+              :class="{ selected: selectedSentence === i }"
+              @click="selectSentence(i)"
+            >{{ s }}</span>
+          </p>
         </div>
         <div class="divider" />
         <div class="result-section">
@@ -24,21 +32,38 @@
           <div v-else-if="entry?.error" class="error-msg">{{ entry.error }}</div>
           <div v-else-if="entry?.text" class="translation-text">
             <p>{{ entry.text }}</p>
-            <BaseButton variant="ghost" size="sm" class="copy-btn" @click="copyTranslation">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-              </svg>
-              复制
-            </BaseButton>
+            <div class="translation-actions">
+              <BaseButton variant="ghost" size="sm" @click="copyTranslation">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                复制
+              </BaseButton>
+              <BaseButton variant="ghost" size="sm" :disabled="analyzing" @click="doAnalyze">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                {{ analyzing ? '分析中...' : '分析' }}
+              </BaseButton>
+            </div>
           </div>
         </div>
+        <template v-if="analysis !== null">
+          <div class="divider" />
+          <div class="analysis-section">
+            <div class="section-label">翻译分析</div>
+            <LoadingSpinner v-if="analyzing" text="分析中..." />
+            <div v-else-if="analysisError" class="error-msg">{{ analysisError }}</div>
+            <div v-else-if="analysis" class="analysis-text">{{ analysis }}</div>
+          </div>
+        </template>
       </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, ref } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
@@ -50,6 +75,19 @@ import { TranslationCache } from '@/services/cache'
 const readerStore = useReaderStore()
 const translationStore = useTranslationStore()
 const cache = new TranslationCache()
+
+const analyzing = ref(false)
+const analysis = ref<string | null>(null)
+const analysisError = ref<string | null>(null)
+const selectedSentence = ref(-1)
+
+const sentences = computed(() => {
+  return sourceText.value.split(/(?<=[.!?。！？\n])\s*/g).filter(s => s.trim())
+})
+
+function selectSentence(i: number) {
+  selectedSentence.value = selectedSentence.value === i ? -1 : i
+}
 
 const translationKey = computed(() => {
   if (readerStore.selectedText) return `sel:${readerStore.selectedText}`
@@ -91,6 +129,9 @@ const doTranslate = useDebounce(async (key: string, text: string) => {
 }, 500)
 
 watch(translationKey, (newKey) => {
+  analysis.value = null
+  analysisError.value = null
+  selectedSentence.value = -1
   if (newKey && sourceText.value) {
     const existing = translationStore.getTranslation(newKey)
     if (!existing || existing.error) {
@@ -102,6 +143,24 @@ watch(translationKey, (newKey) => {
 async function copyTranslation() {
   if (entry.value?.text) {
     await navigator.clipboard.writeText(entry.value.text)
+  }
+}
+
+async function doAnalyze() {
+  if (!entry.value?.text) return
+  const analyzeSource = selectedSentence.value >= 0
+    ? sentences.value[selectedSentence.value]
+    : sourceText.value
+  analyzing.value = true
+  analysisError.value = null
+  analysis.value = null
+  try {
+    const result = await window.api.analyze(analyzeSource, entry.value.text)
+    analysis.value = result
+  } catch (err) {
+    analysisError.value = err instanceof Error ? err.message : '分析失败'
+  } finally {
+    analyzing.value = false
   }
 }
 </script>
@@ -165,6 +224,21 @@ async function copyTranslation() {
   user-select: text;
 }
 
+.sentence {
+  border-radius: 2px;
+  transition: background-color var(--transition-fast);
+  cursor: pointer;
+}
+
+.sentence:hover {
+  background: var(--color-primary-light);
+}
+
+.sentence.selected {
+  background: var(--color-primary-light);
+  outline: 1px solid var(--color-primary);
+}
+
 .divider {
   height: 1px;
   background: var(--color-border-light);
@@ -180,8 +254,22 @@ async function copyTranslation() {
   white-space: pre-wrap;
 }
 
-.copy-btn {
+.translation-actions {
+  display: flex;
+  gap: var(--space-xs);
   margin-top: var(--space-sm);
+}
+
+.analysis-section {
+  margin-bottom: var(--space-md);
+}
+
+.analysis-text {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-text);
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .error-msg {

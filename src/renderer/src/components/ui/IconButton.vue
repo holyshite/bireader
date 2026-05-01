@@ -24,8 +24,8 @@ defineEmits<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border: none;
   border-radius: var(--border-radius-sm);
   background: transparent;

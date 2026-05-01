@@ -19,6 +19,7 @@ interface SaveConfigInput {
 
 export interface ElectronAPI {
   translate: (text: string) => Promise<string>
+  analyze: (text: string, translation: string) => Promise<string>
   openEpub: () => Promise<EpubData | null>
   openEpubByPath: (filePath: string) => Promise<EpubData | null>
   getConfig: () => Promise<AppConfig>

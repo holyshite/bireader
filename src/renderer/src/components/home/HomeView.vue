@@ -62,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useLibraryStore } from '@/stores/library'
 
@@ -70,6 +71,17 @@ const emit = defineEmits<{
   openBook: [book: { title: string; filePath: string }]
   import: []
 }>()
+
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  timer = setInterval(() => { now.value = Date.now() }, 30000)
+})
+
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
 
 function onImport() {
   emit('import')
@@ -80,8 +92,7 @@ function openBook(book: { title: string; filePath: string }) {
 }
 
 function formatTime(ts: number): string {
-  const now = Date.now()
-  const diff = now - ts
+  const diff = now.value - ts
   if (diff < 3600000) return '刚刚'
   if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
   if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`

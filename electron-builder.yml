@@ -12,10 +12,17 @@ files:
 win:
   executableName: bireader
   signAndEditExecutable: false
-  artifactName: ${name}-${version}-portable.${ext}
+  artifactName: ${name}-${version}-setup.${ext}
   target:
-    - target: portable
+    - target: nsis
       arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
 linux:
   target:
     - AppImage
