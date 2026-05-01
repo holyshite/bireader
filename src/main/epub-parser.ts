@@ -87,14 +87,47 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
     }
   }
 
-  // 6. Parse TocEntries from NCX (with src mapping)
-  const tocNcxPath = findTocNcx(opfXml, manifest, rootfileDir)
-  const ncxEntries: { title: string; src: string }[] = []
+  // 6. Parse TocEntries from NCX (EPUB2) or nav document (EPUB3)
+  const tocNcxPath = findTocNcx(opfXml, manifest)
+  const ncxEntries: { title: string; src: string; level: number }[] = []
   if (tocNcxPath) {
-    const ncxFile = findFile(zip, tocNcxPath)
+    const ncxFile = resolveAndFind(zip, rootfileDir, tocNcxPath)
     if (ncxFile) {
       const ncxXml = await ncxFile.async('string')
       ncxEntries.push(...parseTocNcx(ncxXml))
+    }
+  }
+
+  // EPUB3: try nav document if NCX didn't yield results
+  if (ncxEntries.length === 0) {
+    const navId = [...manifestProps.entries()].find(([, props]) => props.includes('nav'))?.[0]
+    if (navId) {
+      const navHref = manifest.get(navId)
+      if (navHref) {
+        const navFile = resolveAndFind(zip, rootfileDir, navHref)
+        if (navFile) {
+          const navHtml = await navFile.async('string')
+          ncxEntries.push(...parseNavXhtml(navHtml))
+        }
+      }
+    }
+  }
+
+  // If still no TOC, try any file named "nav" or "toc" in manifest
+  if (ncxEntries.length === 0) {
+    for (const [, href] of manifest) {
+      const name = href.replace(/^.*[\\/]/, '').toLowerCase()
+      if (/^(nav|toc)\.(x?html?|xhtml)$/.test(name)) {
+        const f = resolveAndFind(zip, rootfileDir, href)
+        if (f) {
+          const html = await f.async('string')
+          const entries = parseNavXhtml(html)
+          if (entries.length > 0) {
+            ncxEntries.push(...entries)
+            break
+          }
+        }
+      }
     }
   }
 
@@ -132,15 +165,11 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
 
   // 8. Build TOC: map ncx entries to real paragraph IDs via file reference
   const tocEntries: TocEntry[] = []
-  const seenTitles = new Set<string>()
 
   for (const ncx of ncxEntries) {
-    // Normalize src: remove fragment, decode
     const srcFile = ncx.src.replace(/#.*$/, '')
-    // Try to find the paragraph ID from the file map
     let targetId = fileToFirstPara.get(srcFile)
     if (!targetId) {
-      // Try fuzzy match — find any file whose path ends with srcFile
       for (const [file, paraId] of fileToFirstPara) {
         if (file.endsWith(srcFile) || srcFile.endsWith(file)) {
           targetId = paraId
@@ -149,17 +178,13 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
       }
     }
     if (!targetId) {
-      // Fallback: match by title text in paragraphs
       const matched = allParagraphs.find(
         p => p.text.startsWith(ncx.title) || ncx.title.startsWith(p.text.slice(0, ncx.title.length))
       )
       if (matched) targetId = matched.id
     }
 
-    if (!seenTitles.has(ncx.title)) {
-      seenTitles.add(ncx.title)
-      tocEntries.push({ id: targetId || `epub-p-0`, title: ncx.title, level: 1 })
-    }
+    tocEntries.push({ id: targetId || `epub-p-0`, title: ncx.title, level: ncx.level })
   }
 
   // If no NCX TOC, extract from content headings
@@ -198,7 +223,7 @@ function extractAttr(tag: string, attr: string): string | null {
   return m ? m[1] : null
 }
 
-function findTocNcx(opfXml: string, manifest: Map<string, string>, rootfileDir: string): string | null {
+function findTocNcx(opfXml: string, manifest: Map<string, string>): string | null {
   const spineTag = opfXml.match(/<spine[^>]*>/)
   const tocId = spineTag ? extractAttr(spineTag[0], 'toc') : null
   if (tocId) {
@@ -212,22 +237,81 @@ function findTocNcx(opfXml: string, manifest: Map<string, string>, rootfileDir: 
   return null
 }
 
-function parseTocNcx(ncxXml: string): { title: string; src: string }[] {
-  const entries: { title: string; src: string }[] = []
+function parseTocNcx(ncxXml: string): { title: string; src: string; level: number }[] {
+  const entries: { title: string; src: string; level: number }[] = []
   const cleanXml = ncxXml.replace(/\s+xmlns(:[a-z]+)?="[^"]*"/g, '')
+  parseNavPointsRecursive(cleanXml, entries, 0)
+  return entries
+}
 
-  const navBlockRegex = /<navPoint[^>]*>([\s\S]*?)<\/navPoint>/g
-  let blockMatch: RegExpExecArray | null
+function parseNavPointsRecursive(xml: string, entries: { title: string; src: string; level: number }[], depth: number) {
+  let pos = 0
+  const level = Math.min(depth + 1, 3)
 
-  while ((blockMatch = navBlockRegex.exec(cleanXml)) !== null) {
-    const block = blockMatch[1]
-    const textMatch = block.match(/<text>([^<]+)<\/text>/)
-    const srcMatch = block.match(/<content[^>]*src="([^"]*)"/)
-    if (textMatch) {
-      entries.push({
-        title: textMatch[1].trim(),
-        src: srcMatch ? decodeURIComponent(srcMatch[1]) : ''
-      })
+  while (pos < xml.length) {
+    // Find next <navPoint> tag
+    const openIdx = xml.indexOf('<navPoint', pos)
+    if (openIdx < 0) break
+
+    // Find the matching </navPoint> using stack-based matching
+    const contentStart = xml.indexOf('>', openIdx) + 1
+    let nest = 1
+    let searchPos = contentStart
+    while (nest > 0 && searchPos < xml.length) {
+      const nextOpen = xml.indexOf('<navPoint', searchPos)
+      const nextClose = xml.indexOf('</navPoint>', searchPos)
+
+      if (nextClose < 0) return // Malformed
+      if (nextOpen >= 0 && nextOpen < nextClose) {
+        nest++
+        searchPos = nextOpen + 9 // len of '<navPoint'
+      } else {
+        nest--
+        if (nest === 0) {
+          const block = xml.slice(contentStart, nextClose)
+          const textMatch = block.match(/<text>([^<]+)<\/text>/)
+          const srcMatch = block.match(/<content[^>]*src="([^"]*)"/)
+          if (textMatch) {
+            entries.push({
+              title: textMatch[1].trim(),
+              src: srcMatch ? decodeURIComponent(srcMatch[1]) : '',
+              level
+            })
+          }
+          // Recursively parse nested navPoints
+          parseNavPointsRecursive(block, entries, depth + 1)
+          pos = nextClose + 11 // len of '</navPoint>'
+        }
+        searchPos = nextClose + 11
+      }
+    }
+    if (nest > 0) break
+  }
+}
+
+function parseNavXhtml(html: string): { title: string; src: string; level: number }[] {
+  const entries: { title: string; src: string; level: number }[] = []
+  const navMatch = html.match(/<nav[^>]*(?:epub:type|type)\s*=\s*["']toc["'][^>]*>([\s\S]*?)<\/nav>/i)
+  const section = navMatch ? navMatch[1] : html
+
+  // Detect nesting from <ol> levels
+  const olDepth = new Map<number, number>()
+  let currentDepth = 1
+
+  const linkRegex = /<a[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+  let linkMatch: RegExpExecArray | null
+
+  while ((linkMatch = linkRegex.exec(section)) !== null) {
+    const href = decodeURIComponent(linkMatch[1])
+    const text = linkMatch[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+    // Simple depth detection: count <ol> tags before this link
+    const before = section.slice(0, linkMatch.index)
+    const opens = (before.match(/<ol[^>]*>/gi) || []).length
+    const closes = (before.match(/<\/ol>/gi) || []).length
+    const depth = Math.max(1, opens - closes + 1)
+
+    if (text && href) {
+      entries.push({ title: text, src: href, level: depth })
     }
   }
 
