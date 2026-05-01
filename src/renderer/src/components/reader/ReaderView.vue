@@ -9,20 +9,24 @@
         :class="{
           active: readerStore.activeParagraphId === p.id,
           heading: p.type === 'heading',
-          toc: p.type === 'toc'
+          toc: p.type === 'toc',
+          image: p.type === 'image'
         }"
       >
-        <button
-          class="bookmark-btn"
-          :class="{ bookmarked: bookmarkStore.has(p.id) }"
-          :title="bookmarkStore.has(p.id) ? '取消书签' : '添加书签'"
-          @click.stop="bookmarkStore.toggle(p.id, p.text)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" :fill="bookmarkStore.has(p.id) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-          </svg>
-        </button>
-        <p class="paragraph-text">{{ p.text }}</p>
+        <img v-if="p.type === 'image'" :src="p.src" class="content-image" />
+        <template v-else>
+          <button
+            class="bookmark-btn"
+            :class="{ bookmarked: bookmarkStore.has(p.id) }"
+            :title="bookmarkStore.has(p.id) ? '取消书签' : '添加书签'"
+            @click.stop="bookmarkStore.toggle(p.id, p.text)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" :fill="bookmarkStore.has(p.id) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+            </svg>
+          </button>
+          <p class="paragraph-text">{{ p.text }}</p>
+        </template>
       </div>
     </div>
   </div>
@@ -132,5 +136,22 @@ const bookmarkStore = useBookmarkStore()
 
 .bookmark-btn:hover {
   color: var(--color-accent);
+}
+
+.paragraph-row.image {
+  padding: var(--space-md) var(--space-sm);
+  cursor: default;
+}
+
+.paragraph-row.image:hover {
+  background: transparent;
+}
+
+.content-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  border-radius: var(--border-radius-sm);
 }
 </style>

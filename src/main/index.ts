@@ -1,8 +1,13 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, protocol, net } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { initConfig } from './config'
+
+// Register custom protocol for local images
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'bireader-img', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
+])
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +39,12 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Handle custom protocol for EPUB images
+  protocol.handle('bireader-img', (request) => {
+    const filePath = decodeURIComponent(request.url.replace('bireader-img://', ''))
+    return net.fetch(`file://${filePath}`)
+  })
+
   electronApp.setAppUserModelId('com.bireader.app')
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

@@ -1,5 +1,5 @@
 interface EpubData {
-  paragraphs: { id: string; text: string; type: 'heading' | 'text' | 'toc' }[]
+  paragraphs: { id: string; text: string; type: 'heading' | 'text' | 'toc' | 'image'; src?: string }[]
   toc: { id: string; title: string; level: number }[]
   title: string
   filePath: string

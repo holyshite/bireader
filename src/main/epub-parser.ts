@@ -1,10 +1,14 @@
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { app } from 'electron'
 import JSZip from 'jszip'
+import crypto from 'crypto'
 
 interface EpubChunk {
   id: string
   text: string
-  type: 'heading' | 'text' | 'toc'
+  type: 'heading' | 'text' | 'toc' | 'image'
+  src?: string
 }
 
 interface TocEntry {
@@ -22,6 +26,28 @@ interface EpubResult {
 export async function parseEpub(filePath: string): Promise<EpubResult> {
   const buffer = readFileSync(filePath)
   const zip = await JSZip.loadAsync(buffer)
+
+  // 0. Extract images to temp directory
+  const bookHash = crypto.createHash('md5').update(filePath).digest('hex').slice(0, 8)
+  const imgDir = join(app.getPath('temp'), 'bireader-images', bookHash)
+  if (!existsSync(imgDir)) mkdirSync(imgDir, { recursive: true })
+
+  const imageMap = new Map<string, string>() // relative path in epub → local path
+  const imgExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+  for (const [name] of Object.entries(zip.files)) {
+    const ext = name.toLowerCase().slice(name.lastIndexOf('.'))
+    if (imgExtensions.includes(ext)) {
+      try {
+        const imgData = await zip.file(name)!.async('nodebuffer')
+        const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const localPath = join(imgDir, safeName)
+        if (!existsSync(localPath)) writeFileSync(localPath, imgData)
+        imageMap.set(name, localPath)
+        // Also map just the filename
+        imageMap.set(name.replace(/^.*[\\/]/, ''), localPath)
+      } catch { /* skip unreadable images */ }
+    }
+  }
 
   // 1. Find rootfile path from container.xml
   const containerFile = zip.file('META-INF/container.xml')
@@ -150,7 +176,7 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
 
     const isTocPage = tocPageIds.has(s.idref)
     const html = await htmlFile.async('string')
-    const chunks = extractParagraphs(html, paraIndex)
+    const chunks = extractParagraphs(html, paraIndex, imageMap)
     if (isTocPage) {
       for (const c of chunks) c.type = 'toc'
     }
@@ -318,7 +344,7 @@ function parseNavXhtml(html: string): { title: string; src: string; level: numbe
   return entries
 }
 
-function extractParagraphs(html: string, startIndex: number): EpubChunk[] {
+function extractParagraphs(html: string, startIndex: number, imageMap: Map<string, string>): EpubChunk[] {
   const normalizedHtml = html.replace(/<(\/?)(\w+):(\w+)/g, '<$1$3')
 
   const bodyMatch = normalizedHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)
@@ -326,22 +352,70 @@ function extractParagraphs(html: string, startIndex: number): EpubChunk[] {
 
   bodyHtml = bodyHtml.replace(/<(script|style|head|meta|link)[\s\S]*?<\/\1>/gi, '')
   bodyHtml = bodyHtml.replace(/<(script|style)[^>]*\/>/gi, '')
-  bodyHtml = bodyHtml.replace(/<(img|svg|figure)[\s\S]*?(<\/\1>|\/>)/gi, '')
 
-  // Split by block tags, tracking heading tags
+  // Extract images before removing all tags
+  const chunks: EpubChunk[] = []
+  const imgRegex = /<img[^>]*src\s*=\s*["']([^"']+)["'][^>]*\/?>/gi
+  let imgMatch: RegExpExecArray | null
+  let lastPos = 0
+
+  while ((imgMatch = imgRegex.exec(bodyHtml)) !== null) {
+    // Process text before this image
+    const before = bodyHtml.slice(lastPos, imgMatch.index)
+    const textChunks = extractTextChunks(before, startIndex + chunks.length)
+    chunks.push(...textChunks)
+
+    // Create image chunk
+    const imgSrc = imgMatch[1]
+    const localPath = findImagePath(imgSrc, imageMap)
+    if (localPath) {
+      chunks.push({
+        id: `epub-i-${startIndex + chunks.length}`,
+        text: '',
+        type: 'image',
+        src: `bireader-img://${localPath}`
+      })
+    }
+    lastPos = imgMatch.index + imgMatch[0].length
+  }
+
+  // Process remaining text after last image
+  const after = bodyHtml.slice(lastPos)
+  const remainingChunks = extractTextChunks(after, startIndex + chunks.length)
+  chunks.push(...remainingChunks)
+
+  return chunks
+}
+
+function findImagePath(src: string, imageMap: Map<string, string>): string | null {
+  // Try exact match
+  if (imageMap.has(src)) return imageMap.get(src)!
+  // Try just the filename
+  const filename = src.replace(/^.*[\\/]/, '')
+  if (imageMap.has(filename)) return imageMap.get(filename)!
+  // Try path segments
+  for (const [key, val] of imageMap) {
+    if (key.endsWith(filename) || key.endsWith(src.replace(/^.*[\\/]/, ''))) return val
+  }
+  return null
+}
+
+function extractTextChunks(html: string, startIndex: number): EpubChunk[] {
+  // Remove svg and figure tags
+  html = html.replace(/<(svg|figure)[\s\S]*?(<\/\1>|\/>)/gi, '')
+
   const blockRegex = /<\/?(h[1-6]|p|div|br|section|article|li|blockquote|td|th|pre)[^>]*\/?>/gi
   const segments: { text: string; isHeading: boolean }[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
-  while ((match = blockRegex.exec(bodyHtml)) !== null) {
-    const text = bodyHtml.slice(lastIndex, match.index)
+  while ((match = blockRegex.exec(html)) !== null) {
+    const text = html.slice(lastIndex, match.index)
     lastIndex = match.index + match[0].length
     const isHeading = /^h[1-6]$/i.test(match[1])
     segments.push({ text, isHeading })
   }
-  // Last segment
-  segments.push({ text: bodyHtml.slice(lastIndex), isHeading: false })
+  segments.push({ text: html.slice(lastIndex), isHeading: false })
 
   const paragraphs: EpubChunk[] = []
 
