@@ -209,28 +209,36 @@ export async function parseEpub(filePath: string): Promise<EpubResult> {
       for (const c of chunks) c.type = 'toc'
     }
 
-    // Insert TOC headings that don't already exist in extracted content
-    const headings = fileHeadings.get(href)
-    if (headings) {
-      const chunkTexts = new Set(chunks.map(c => c.text))
-      for (const h of headings) {
-        // Always add to TOC
-        let targetId: string
-        if (!chunkTexts.has(h.title)) {
-          targetId = `epub-h-${paraIndex}`
-          allParagraphs.push({ id: targetId, text: h.title, type: 'heading' })
-          paraIndex++
-        } else {
-          // Title exists in content, use existing paragraph ID
-          const existing = chunks.find(c => c.text === h.title)
-          targetId = existing ? existing.id : `epub-p-${paraIndex}`
-        }
-        tocEntries.push({ id: targetId, title: h.title, level: h.level })
-      }
-    }
-
     if (chunks.length > 0) {
-      allParagraphs.push(...chunks)
+      const headings = fileHeadings.get(href)
+      if (headings) {
+        const chunkTexts = new Set(chunks.map(c => c.text))
+        const missingHeadings = headings.filter(h => !chunkTexts.has(h.title))
+        const interval = missingHeadings.length > 1 ? Math.max(1, Math.floor(chunks.length / missingHeadings.length)) : 0
+
+        let inserted = 0
+        for (let ci = 0; ci < chunks.length; ci++) {
+          // Insert missing headings at intervals
+          if (interval > 0 && ci > 0 && ci % interval === 0 && inserted < missingHeadings.length) {
+            const h = missingHeadings[inserted]
+            const id = `epub-h-${paraIndex}`
+            allParagraphs.push({ id, text: h.title, type: 'heading' })
+            tocEntries.push({ id, title: h.title, level: h.level })
+            paraIndex++
+            inserted++
+          }
+          allParagraphs.push(chunks[ci])
+        }
+        // Add remaining TOC entries for headings that exist in content
+        for (const h of headings) {
+          if (!tocEntries.some(t => t.title === h.title)) {
+            const existing = chunks.find(c => c.text === h.title)
+            tocEntries.push({ id: existing?.id || `epub-p-${paraIndex}`, title: h.title, level: h.level })
+          }
+        }
+      } else {
+        allParagraphs.push(...chunks)
+      }
     }
     paraIndex += chunks.length
   }
